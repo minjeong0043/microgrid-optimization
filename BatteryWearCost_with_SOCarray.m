@@ -3,14 +3,18 @@ w_s = WearDensityFunc(0.1);
 C_bess_unit = UnitDegCost(50);
 C_bess = 0;
 
-index = length(SOC.Data)
+index = length(SOC.Data);
 
-for i = 1:index-1
-%     C_bess_unit = UnitDegCost(i);
-%     C_bess = C_bess + C_bess_unit;
-    disp(i)
+C_bess_array = zeros(1, index)
+for i = 2:index-1
+    C_bess_unit = UnitDegCost(i);
+    C_bess = C_bess + C_bess_unit
+    C_bess_array(i) = C_bess;
+%     disp(i)
 end
 
+figure(1)
+plot(C_bess_array)
 % Define function
 function w_s = WearDensityFunc(s)
     % Define parameters
