@@ -42,7 +42,7 @@ disp(double(C_bess)) % 소수점으로 간단하게 표현 가능
 
 
 %% Define function
-function w_s = wearDensityFunc(s)
+function w_s = WearDensityFunc(s)
     % define parameters
     C_bess_price = 3*10^5; %[MWh]
     eta_ch = 0.95; eta_dis = 0.95;
