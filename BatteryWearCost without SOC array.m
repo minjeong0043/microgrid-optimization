@@ -40,76 +40,28 @@ disp(double(C_bess)) % 소수점으로 간단하게 표현 가능
 % 
 % 
 
-function w_s = WearDensityFunc(s)
+
+%% Define function
+function w_s = wearDensityFunc(s)
     % define parameters
-    C_bess_price = 3*10^5; %[$/MWh]
+    C_bess_price = 3*10^5; %[MWh]
     eta_ch = 0.95; eta_dis = 0.95;
     A = 694; B = 0.795;
     
     % calculate wear density func w(s)
     w_s = (C_bess_price / (2 * eta_ch * eta_dis)) * (B * (1 - s)^(B - 1)) / A;
 end
+
 
 function phi =  IntegralWearDensityFunc(SOC_0, SOC_i)
     syms s
-    %phi = symsum(WearDensityFunc(s), s, 0, t)
     phi = int(WearDensityFunc(s), SOC_0, SOC_i);
-    %여기서 궁금한 게 s가 어떻게 들어가는지야; 변수 s를 가진 함수로 들어감.
-%     disp(WearDensityFunc(s))
 end
 
 function C_bess_unit = UnitDegCost(SOC_0, SOC_t, SOC_t_1)
-    E_cap = 0.8;
-    C_bess_unit = E_cap * (IntegralWearDensityFunc(SOC_0, SOC_t)- IntegralWearDensityFunc(SOC_0, SOC_t_1));
-    
-    % wear cost is positive regardless battery is charging or discharging
-    if C_bess_unit > 0 
-        C_bess_unit = C_bess_unit;
-    else
-            C_bess_unit = - C_bess_unit;
-    end
-end
-
-% function C_bess_unit = UnitDegCost(t)
-%     E_cap = 0.8;
-%     if IntegralWearDensityFunc(t) > 0 % is this correct time
-%         state = 1;
-%     elseif IntegralWearDensityFunc(t) < 0 
-%         state = -1;
-%     end
-% 
-%     C_bess_unit = E_cap * state * (IntegralWearDensityFunc(t), IntegralWearDensityFunc(t-1));
-%     C_bess += C_bess_unit;
-% end
-
-
-% 정리 버전
-%% Assume we don't have SOC array, only have current SOC value
-function w_s = wearDensityFunc_(s)
-    % define parameters
-    C_bess_price = 3*10^5;
-    eta_ch = 0.95; eta_dis = 0.95;
-    A = 694; B = 0.795;
-    
-    % calculate wear density func w(s)
-    w_s = (C_bess_price / (2 * eta_ch * eta_dis)) * (B * (1 - s)^(B - 1)) / A;
-end
-
-
-function phi =  IntegralWearDensityFunc_(SOC_0, SOC_i)
-    syms s
-    %phi = symsum(WearDensityFunc(s), s, 0, t)
-    phi = int(WearDensityFunc(s), SOC_0, SOC_i);
-end
-
-function C_bess_unit = UnitDegCost_(SOC_0, SOC_t, SOC_t_1)
     E_cap = 0.8; %[MWh]
-    C_bess_unit = E_cap * (IntegralWearDensityFunc_(SOC_0, SOC_t) - IntegralWearDensityFunc_(SOC_0, SOC_t_1));
+    C_bess_unit = E_cap * (IntegralWearDensityFunc(SOC_0, SOC_t) - IntegralWearDensityFunc(SOC_0, SOC_t_1));
 
     % wear cost is always positive whenever battery is charging or discharging
-    if C_bess_unit > 0
-        C_bess_unit = C_bess_unit;
-    else
-        C_bess_unit = - C_bess_unit;
-    end
+    C_bess_unit = abs(C_bess_unit);
 end
