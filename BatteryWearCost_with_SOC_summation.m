@@ -1,4 +1,5 @@
 % Integral 말고 summation으로 하면 계산이 빨라지지 않을까
+% 계산은 빨라지되, C_bess_array배열이 커지는 게 좀 모양이 integral과는 다름. 사용하지 못할 거 같음.
 w_s = WearDensityFunc(0.1);
 C_bess_unit = UnitDegCost(50);
 C_bess = 0
