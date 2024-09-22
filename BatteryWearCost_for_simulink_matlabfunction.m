@@ -1,19 +1,20 @@
-function C_bess = BatteryDegradationCost(SOC)
+function C_bess = BatteryDegradationCost(SOC_cur)
     % MATLAB Function 블록에서는 모든 변수를 입력 및 출력으로 정의해야 합니다.
     % 따라서 phi_pre와 C_bess는 persistent로 정의하여 상태를 유지합니다.
     
-    persistent phi_pre C_bess_accum;
+    persistent SOC_pre C_bess_accum;
     
     % 초기화
-    if isempty(phi_pre)
-        phi_pre = 0;
+    if isempty(SOC_pre)
+        SOC_pre = 0.5;
     end
     if isempty(C_bess_accum)
         C_bess_accum = 0;
     end
+    SOC_cur = SOC_cur / 100;
 
     % 새로 계산된 단위 비용을 phi_pre와 함께 업데이트
-    C_bess_unit = UnitDegCost(SOC, phi_pre);
+    C_bess_unit = UnitDegCost2(SOC_cur, SOC_pre);
     
     % 누적 비용을 업데이트
     C_bess_accum = C_bess_accum + C_bess_unit;
@@ -22,12 +23,13 @@ function C_bess = BatteryDegradationCost(SOC)
     C_bess = C_bess_accum;
     
     % phi_pre를 업데이트
-    phi_pre = IntegralWearDensityFunc(SOC);
-
+    %phi_pre = IntegralWearDensityFunc(SOC);
+    SOC_pre = SOC_cur;
     % Define function for Wear Density
     function w_s = WearDensityFunc(s)
         % Define parameters
         C_bess_price = 3*10^5; % [$/MWh]
+        %C_bess_price = 10000/16;
         eta_ch = 0.95; eta_dis = 0.95;
         A = 694; B = 0.795;
 
@@ -53,4 +55,21 @@ function C_bess = BatteryDegradationCost(SOC)
         % Wear Cost is always positive
         C_bess_unit = abs(C_bess_unit);
     end
+
+    %% version 2 code: integral soct, soct-1
+    function phi = IntegralWearDensityFunc2(SOC_pre, SOC_cur)
+        %SOC_init = 50 / 100; % Convert to fraction (0-1)
+        %SOC_cur = SOC_cur / 100;   % Convert to fraction (0-1)
+        fprintf("SOC_pre : %f\n", SOC_pre);
+        % Trapezoidal numerical integration approximation
+        phi = (WearDensityFunc(SOC_pre) + WearDensityFunc(SOC_cur)) * (SOC_cur - SOC_pre) / 2;
+    end
+    function C_bess_unit = UnitDegCost2(SOC_cur, SOC_pre)
+        E_cap = 0.8; %[MWh]
+        C_bess_unit = E_cap* IntegralWearDensityFunc2(SOC_pre, SOC_cur);
+        
+        % Wear Cost is always positive
+        C_bess_unit = abs(C_bess_unit);
+    end
+
 end
