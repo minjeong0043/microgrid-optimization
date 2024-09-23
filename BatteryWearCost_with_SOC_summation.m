@@ -27,7 +27,7 @@ end
 % function phi = SumWearDensityFunc(i)
 %     syms s
 %     load SOC.mat
-%     phi = symsum(WearDensityFunc(s), s, SOC.Data(1), SOC.Data(i));
+%     phi =cumsum(WearDensityFunc(s), s, SOC.Data(1), SOC.Data(i));
 % end
 
 function phi = SumWearDensityFunc(i)
