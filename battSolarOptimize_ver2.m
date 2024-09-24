@@ -1,71 +1,67 @@
-function [Pgrid, Pbatt, Ebatt] = battSolarOptimize_ver2(N, dt, Ppv, Pload, Einit, Cost, FinalWeight, batteryMinMax)
+function [Pgrid,Pbatt,Ebatt, BattWearCost] = battSolarOptimize_ver1(N,dt,Ppv,Pload,Einit,Cost,FinalWeight,batteryMinMax)
 
-    % 초기값 설정
-    x0 = zeros(3*N, 1);  % PgridV, PbattV, EbattV를 하나의 벡터로 결합
+% Minimize the cost of power from the grid while meeting load with power 
+% from PV, battery and grid 
 
-    % 결정 변수 경계 설정 (PgridV, PbattV, EbattV 각각에 대해 설정)
-    lb = [-inf * ones(N,1); batteryMinMax.Pmin * ones(N,1); batteryMinMax.Emin * ones(N,1)];
-    ub = [inf * ones(N,1); batteryMinMax.Pmax * ones(N,1); batteryMinMax.Emax * ones(N,1)];
+prob = optimproblem;
 
-    % 비선형 목적 함수 정의
-    objective = @(x) costFunction(x, N, dt, Cost, FinalWeight, Ppv, Pload);
+% Decision variables
+PgridV = optimvar('PgridV',N, 'LowerBound',0);
+PbattV = optimvar('PbattV',N,'LowerBound',batteryMinMax.Pmin,'UpperBound',batteryMinMax.Pmax);
+EbattV = optimvar('EbattV',N,'LowerBound',batteryMinMax.Emin,'UpperBound',batteryMinMax.Emax);
+BattWearCostV = optimvar('BattWearCostV', N, 'LowerBound', 0);
 
-    % 비선형 제약 조건 정의
-    nonlincon = @(x) nonLinearConstraints(x, N, dt, Einit, batteryMinMax);
+% Minimize cost of electricity from the grid
+prob.ObjectiveSense = 'minimize';
+prob.Objective = dt * Cost' * PgridV - FinalWeight * EbattV(N) + BattWearCostV(N);
 
-    % fmincon 최적화 옵션 설정
-    options = optimoptions('fmincon', 'Display', 'iter', 'Algorithm', 'sqp');
+% Power input/output to battery
+prob.Constraints.energyBalance = optimconstr(N);
+prob.Constraints.energyBalance(1) = EbattV(1) == Einit;
+prob.Constraints.energyBalance(2:N) = EbattV(2:N) == EbattV(1:N-1) - PbattV(1:N-1)*dt;
 
-    % fmincon 최적화 실행
-    [x_opt, ~, exitflag] = fmincon(objective, x0, [], [], [], [], lb, ub, nonlincon, options);
+% battery Wear Cost input/output
+E_cap = 2500;
+prob.Constraints.battDeg = optimconstr(N);
+prob.Constraints.battDeg(1) = BattWearCostV(1) == 0;
+prob.Constraints.battDeg(2:N) = BattWearCostV(2:N) == BattWearCostV(1:N-1) + E_cap * (phi(EbattV(2:N)) - phi(EbattV(1:N-1)));
 
-    % 결과값 추출
-    Pgrid = x_opt(1:N);
-    Pbatt = x_opt(N+1:2*N);
-    Ebatt = x_opt(2*N+1:3*N);
+% Satisfy power load with power from PV, grid and battery
+prob.Constraints.loadBalance = Ppv + PgridV + PbattV == Pload;
+
+% initial sturcture
+x0.PgridV = zeros(N,1);
+x0.PbattV = zeros(N,1);
+x0.EbattV = Einit * ones(N,1);
+x0.BattWearCostV = zeros(N, 1);
+
+% Solve the linear program
+%options = optimoptions(prob.optimoptions,'Display','none');
+% options = optimoptions('fmincon', 'Algorithm', 'interior-point','Display','none');
+options = optimoptions('fmincon', 'Algorithm', 'sqp','Display','none');
+[values,~,exitflag] = solve(prob,x0,'Options',options);
+
+disp("PbattV")
+% Parse optimization results
+if exitflag <= 0
+    % 최적해 없거나 오류는 0을 반환함
+    Pgrid = zeros(N,1);
+    Pbatt = zeros(N,1);
+    Ebatt = zeros(N,1);
+    BattWearCost = zeros(N,1);
+else
+    % 최적해 찾았을 때 값을 넣어줌
+    Pgrid = values.PgridV;
+    Pbatt = values.PbattV;
+    Ebatt = values.EbattV;
+    BattWearCost = values.BattWearCostV;
 end
-
-% 목적 함수 정의
-function J = costFunction(x, N, dt, Cost, FinalWeight, Ppv, Pload)
-    % 결정 변수 분리
-    PgridV = x(1:N);
-    PbattV = x(N+1:2*N);
-    EbattV = x(2*N+1:3*N);
-
-    % 그리드 비용
-    gridCost = dt * Cost' * PgridV;
-
-    % 배터리 마모 비용
-    battery_wear_cost = 0;
-    for t = 2:N
-        battery_wear_cost = battery_wear_cost + E_cap * (PbattV(t) / abs(PbattV(t))) * (phi(EbattV(t)) - phi(EbattV(t-1)));
-    end
-
-    % 최종 목적 함수: 그리드 비용 + 배터리 마모 비용 - 최종 배터리 에너지
-    J = gridCost - FinalWeight * EbattV(N) + battery_wear_cost;
 end
-
-% 비선형 제약 조건 정의
-function [c, ceq] = nonLinearConstraints(x, N, dt, Einit, batteryMinMax)
-    % 결정 변수 분리
-    PgridV = x(1:N);
-    PbattV = x(N+1:2*N);
-    EbattV = x(2*N+1:3*N);
-
-    % Equality constraints (배터리 에너지 밸런스)
-    ceq = zeros(N,1);
-    ceq(1) = EbattV(1) - Einit;
-    for t = 2:N
-        ceq(t) = EbattV(t) - (EbattV(t-1) - PbattV(t-1)*dt);
-    end
-
-    % Inequality constraints (충전 및 방전 상태)
-    c = zeros(N,1);
-    c = [Ppv + PgridV + PbattV - Pload];  % 전력 균형 제약 조건
-end
-
-% 배터리 마모 밀도 함수 정의
 function w_s = WearDensityFunc(s)
+    % Define parameters
+    %C_bess_price = 3*10^5; % [$/MWh]
+    %C_bess_price = 10000/16;
+    BattCap = 2500;
     battPrice = 240000; %[$]
     C_bess_price = battPrice / BattCap;
     eta_ch = 0.95; eta_dis = 0.95;
@@ -74,11 +70,12 @@ function w_s = WearDensityFunc(s)
     % Calculate Wear Density func w(s)
     w_s = (C_bess_price / (2 * eta_ch * eta_dis)) * (B * (1 - s)^(B - 1)) / A;
 end
-
-% SOC 변화에 따른 phi 함수 정의
-function phi_val = phi(EbattV)
+function phi = phi(EbattV)
+    battEnergy = 9*10^9;
     SOC_init = 0.5;
-    battenergy = 1000;  % 배터리 에너지 용량 (예시)
-    SOC_cur = EbattV / battenergy;
-    phi_val = (WearDensityFunc(SOC_init) + WearDensityFunc(SOC_cur)) * (SOC_cur - SOC_init) / 2;
+    SOC_cur = EbattV / battEnergy;
+    N = 241;
+    for t = 2:N-1
+        phi = (WearDensityFunc(SOC_init) + WearDensityFunc(SOC_cur(t))) * (SOC_cur(t) - SOC_init) / 2;
+    end
 end
