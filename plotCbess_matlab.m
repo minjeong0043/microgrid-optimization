@@ -2,14 +2,12 @@
 SOC = Ebatt / battEnergy;
 
 figure(1)
+subplot(2,1,1)
 plot(SOC)
 
-Cbess = zeros(288, 1);
-for i = 2:287
-    Cbess(i,1) = Cbess(i-1, 1) + totalCost(SOC(i), SOC(i-1))
-end
-figure(2)
-plot(Cbess)
+Cbessl = Cbess(length(SOC), SOC)
+subplot(2,1,2)
+plot(Cbessl)
 
 %% Define function
 function w_s = WearDensityFunc(s)
@@ -37,4 +35,11 @@ end
 function Cbess = totalCost(SOC, SOC_pre)
     Cbess = abs(2500 * (phi(SOC) - phi(SOC_pre)));
 end
-
+function Cbess = Cbess(N, SOC)
+    Cbess = zeros(N,1);
+    Cbess(1,1) = 0;
+    for i = 2:N-1
+        Cbess(i,1) = Cbess(i-1,1) + totalCost(SOC(i), SOC(i-1));
+    end
+    Cbess(N,1) = Cbess(N-1,1);
+end
