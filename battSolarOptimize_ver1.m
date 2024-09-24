@@ -1,62 +1,78 @@
-% Load Power Data from Existing PV array
-load pvLoadPriceData;
+function [Pgrid,Pbatt,Ebatt] = battSolarOptimize_ver1(N,dt,Ppv,Pload,Einit,Cost,FinalWeight,batteryMinMax)
 
-% Set up Optimization Parameters
-numDays = 1;            % Number of consecutive days
-FinalWeight = 1;      % Final weight on energy storage
-timeOptimize = 5;       % Time step for optimization [min]
+% Minimize the cost of power from the grid while meeting load with power 
+% from PV, battery and grid 
 
-% Battery/PV parameters
-panelArea = 2500;
-panelEff = 0.3;
+prob = optimproblem;
 
-battEnergy = 2500*3.6e6;
-Einit = 0.5*battEnergy;
-batteryMinMax.Emax = 0.8*battEnergy;
-batteryMinMax.Emin = 0.2*battEnergy;
-batteryMinMax.Pmin = -400e3;
-batteryMinMax.Pmax = 400e3;
+% Decision variables
+PgridV = optimvar('PgridV',N);
+PbattV = optimvar('PbattV',N,'LowerBound',batteryMinMax.Pmin,'UpperBound',batteryMinMax.Pmax);
+EbattV = optimvar('EbattV',N,'LowerBound',batteryMinMax.Emin,'UpperBound',batteryMinMax.Emax);
+BattWearCost = optimvar('BattWearCost', N, 'LowerBound', 0);
 
-% Rescale data to align with desired time steps
-stepAdjust = (timeOptimize*60)/(time(2)-time(1));
-cloudyPpv = panelArea*panelEff*repmat(cloudyDay(2:stepAdjust:end),numDays,1);
-clearPpv = panelArea*panelEff*repmat(clearDay(2:stepAdjust:end),numDays,1);
+% Minimize cost of electricity from the grid
+prob.ObjectiveSense = 'minimize';
+prob.Objective = dt * Cost' * PgridV - FinalWeight * EbattV(N) + BattWearCost(N);
 
-% Adjust and Select Loading
-loadSelect = 3;
-loadBase = 350e3;
-loadFluc = repmat(loadData(2:stepAdjust:end,loadSelect),numDays,1) + loadBase;
+% Power input/output to battery
+prob.Constraints.energyBalance = optimconstr(N);
+prob.Constraints.energyBalance(1) = EbattV(1) == Einit;
+prob.Constraints.energyBalance(2:N) = EbattV(2:N) == EbattV(1:N-1) - PbattV(1:N-1)*dt;
 
-% Grid Price Values [$/kWh]
-C = repmat(costData(2:stepAdjust:end),numDays,1);
+% battery Wear Cost input/output
+E_cap = 2500;
+prob.Constraints.battDeg = optimconstr(N);
+prob.Constraints.battDeg(1) = BattWearCost(1) == 0;
+prob.Constraints.battDeg(2:N) = BattWearCost(2:N) == BattWearCost(1:N-1) + E_cap * (phi(EbattV(2:N)) - phi(EbattV(1:N-1)));
 
-% Select Desired Data for Optimization
-Ppv = clearPpv;
-% Ppv = cloudyPpv;
-Pload = loadFluc;
+% Satisfy power load with power from PV, grid and battery
+prob.Constraints.loadBalance = Ppv + PgridV + PbattV == Pload;
 
-% Setup Time Vectors
-dt = timeOptimize*60;
-N = numDays*(numel(time(1:stepAdjust:end))-1);
-tvec = (1:N)'*dt;
+% initial sturcture
+x0.PgridV = zeros(N,1);
+x0.PbattV = zeros(N,1);
+x0.EbattV = Einit * ones(N,1);
+x0.BattWearCost = zeros(N, 1);
 
-% Optimize Grid Energy Usage
-[Pgrid,Pbatt,Ebatt] = battSolarOptimize_ver1(N,dt,Ppv,Pload,Einit,C,FinalWeight,batteryMinMax);
+% Solve the linear program
+%options = optimoptions(prob.optimoptions,'Display','none');
+% options = optimoptions('fmincon', 'Algorithm', 'interior-point','Display','none');
+options = optimoptions('fmincon', 'Algorithm', 'sqp','Display','none');
+[values,~,exitflag] = solve(prob,x0,'Options',options);
 
-% Plot Results
-figure;
-subplot(3,1,1);
-thour = tvec/3600;
-plot(thour,Ebatt/3.6e6); grid on;
-xlabel('Time [hrs]'); ylabel('Battery Energy [kW-h]');
+% Parse optimization results
+if exitflag <= 0
+    % 최적해 없거나 오류는 0을 반환함
+    Pgrid = zeros(N,1);
+    Pbatt = zeros(N,1);
+    Ebatt = zeros(N,1);
+else
+    % 최적해 찾았을 때 값을 넣어줌
+    Pgrid = values.PgridV;
+    Pbatt = values.PbattV;
+    Ebatt = values.EbattV;
+end
+end
+function w_s = WearDensityFunc(s)
+    % Define parameters
+    %C_bess_price = 3*10^5; % [$/MWh]
+    %C_bess_price = 10000/16;
+    BattCap = 2500;
+    battPrice = 240000; %[$]
+    C_bess_price = battPrice / BattCap;
+    eta_ch = 0.95; eta_dis = 0.95;
+    A = 694; B = 0.795;
 
-subplot(3,1,2);
-plot(thour,C); grid on;
-xlabel('Time [hrs]'); ylabel('Grid Price [$/kWh]');
-
-subplot(3,1,3);
-plot(thour,Ppv/1e3,thour,Pbatt/1e3,thour,Pgrid/1e3,thour,Pload/1e3);
-grid on;
-legend('PV','Battery','Grid','Load')
-xlabel('Time [hrs]'); ylabel('Power [W]');
-
+    % Calculate Wear Density func w(s)
+    w_s = (C_bess_price / (2 * eta_ch * eta_dis)) * (B * (1 - s)^(B - 1)) / A;
+end
+function phi = phi(EbattV)
+    battEnergy = 9*10^9;
+    SOC_init = 0.5;
+    SOC_cur = EbattV / battEnergy;
+    N = 241;
+    for t = 2:N-1
+        phi = (WearDensityFunc(SOC_init) + WearDensityFunc(SOC_cur(t))) * (SOC_cur(t) - SOC_init) / 2;
+    end
+end
